@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 void main() {
   runApp(GymLogApp());
@@ -34,7 +35,8 @@ class _MainScreenState extends State<MainScreen> {
   final List<Widget> _pages = [
     GymLogScreen(),
     CalendarScreen(),
-    BodyMetricsScreen(), // Added new page
+    BodyMetricsScreen(),
+    ProgressGraphScreen(),
   ];
 
   void _onItemTapped(int index) {
@@ -65,6 +67,10 @@ class _MainScreenState extends State<MainScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.monitor_weight),
             label: "Metrics",
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.show_chart),
+            label: "Progress",
           ),
         ],
       ),
@@ -111,79 +117,128 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        TableCalendar(
-          firstDay: DateTime.utc(2020, 1, 1),
-          lastDay: DateTime.utc(2030, 12, 31),
-          focusedDay: _selectedDay,
-          calendarFormat: _calendarFormat,
-          onFormatChanged: (format) {
-            setState(() {
-              _calendarFormat = format;
-            });
-          },
-          selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-          onDaySelected: (selectedDay, focusedDay) {
-            _loadWorkout(selectedDay);
-          },
-        ),
-        Expanded(
-          child:
-              _workoutDetails.isEmpty
-                  ? Center(
-                    child: Text(
-                      "No workout logged on this day",
-                      style: TextStyle(color: Colors.white),
+    return Scaffold(
+      backgroundColor: Colors.black, // Ensure consistent background
+      appBar: AppBar(
+        title: Text("Workout Calendar"),
+        backgroundColor: Colors.black,
+      ),
+      body: Column(
+        children: [
+          TableCalendar(
+            firstDay: DateTime.utc(2020, 1, 1),
+            lastDay: DateTime.utc(2030, 12, 31),
+            focusedDay: _selectedDay,
+            calendarFormat: _calendarFormat,
+            onFormatChanged: (format) {
+              setState(() {
+                _calendarFormat = format;
+              });
+            },
+            selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+            onDaySelected: (selectedDay, focusedDay) {
+              _loadWorkout(selectedDay);
+            },
+          ),
+          Expanded(
+            child:
+                _workoutDetails.isEmpty
+                    ? Center(
+                      child: Text(
+                        "No workout logged on this day",
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    )
+                    : Column(
+                      children: [
+                        Expanded(
+                          child: ListView(
+                            padding: EdgeInsets.all(16),
+                            children: [
+                              Text(
+                                _workoutDetails[0]['workoutName'] ?? "",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              for (var exercise in _workoutDetails)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4.0,
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        "${exercise['name']} x${exercise['sets']}",
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      for (
+                                        int i = 0;
+                                        i < exercise['reps'].length;
+                                        i++
+                                      )
+                                        Text(
+                                          "  ${i + 1}. ${exercise['reps'][i]}x${exercise['weights'][i]}",
+                                          style: TextStyle(
+                                            color: Colors.white70,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: _removeWorkout,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.redAccent,
+                          ),
+                          child: Text(
+                            "Remove Workout",
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ],
                     ),
-                  )
-                  : Column(
-                    children: [
-                      Expanded(
-                        child: ListView.builder(
-                          itemCount: _workoutDetails.length,
-                          itemBuilder: (context, index) {
-                            final exercise = _workoutDetails[index];
-                            return ListTile(
-                              title: Text(
-                                "${exercise['name']} (${exercise['workoutName']})",
-                                style: TextStyle(color: Colors.white),
-                              ),
-                              subtitle: Text(
-                                "Sets: ${exercise['sets']}, Reps: ${exercise['reps'].join(', ')}, Weights: ${exercise['weights'].join(', ')}",
-                                style: TextStyle(color: Colors.white70),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      ElevatedButton(
-                        onPressed: _removeWorkout,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.redAccent,
-                        ),
-                        child: Text(
-                          "Remove Workout",
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      ),
-                    ],
-                  ),
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 }
 
+class GymLogScreen extends StatefulWidget {
+  @override
+  _GymLogScreenState createState() => _GymLogScreenState();
+}
+
 class _GymLogScreenState extends State<GymLogScreen> {
-  final TextEditingController _dayNameController = TextEditingController();
   final TextEditingController _workoutNameController = TextEditingController();
   List<Exercise> exercises = [];
+  bool isTemplate = true;
+  List<String> savedTemplates = [];
+  String? selectedTemplate;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedTemplates();
+  }
 
   void _addExercise() {
     setState(() {
       exercises.add(
-        Exercise(onUpdate: () => setState(() {}), onRemove: _removeExercise),
+        Exercise(onUpdate: _checkTemplateStatus, onRemove: _removeExercise),
       );
     });
   }
@@ -191,26 +246,93 @@ class _GymLogScreenState extends State<GymLogScreen> {
   void _removeExercise(Exercise exercise) {
     setState(() {
       exercises.remove(exercise);
+      _checkTemplateStatus();
     });
   }
 
-  Future<void> _saveWorkout() async {
+  void _checkTemplateStatus() {
+    setState(() {
+      isTemplate = exercises.any((e) => e.hasEmptyFields());
+    });
+  }
+
+  Future<void> _saveWorkout({bool asTemplate = false}) async {
     final prefs = await SharedPreferences.getInstance();
     DateTime today = DateTime.now();
     String formattedDate = DateFormat('yyyy-MM-dd').format(today);
 
     List<Map<String, dynamic>> workoutData =
-        exercises.map((e) {
-          var json = e.toJson();
-          json['workoutName'] = _workoutNameController.text;
-          return json;
-        }).toList();
+        exercises.map((e) => e.toJson()).toList();
 
-    await prefs.setString(formattedDate, jsonEncode(workoutData));
+    if (asTemplate) {
+      String templateName = _workoutNameController.text.trim();
+      if (templateName.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Please enter a template name.")),
+        );
+        return;
+      }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Workout saved for $formattedDate!")),
-    );
+      await prefs.setString("template_$templateName", jsonEncode(workoutData));
+      await _loadSavedTemplates();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Template '$templateName' saved!")),
+      );
+    } else {
+      await prefs.setString(formattedDate, jsonEncode(workoutData));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Workout saved for $formattedDate!")),
+      );
+    }
+  }
+
+  Future<void> _loadTemplate(String templateName) async {
+    final prefs = await SharedPreferences.getInstance();
+    String? storedTemplate = prefs.getString("template_$templateName");
+
+    if (storedTemplate != null) {
+      List<dynamic> templateData = jsonDecode(storedTemplate);
+      setState(() {
+        exercises =
+            templateData
+                .map(
+                  (e) => Exercise.fromJson(
+                    e,
+                    _checkTemplateStatus,
+                    _removeExercise,
+                  ),
+                )
+                .toList();
+      });
+    }
+  }
+
+  Future<void> _deleteTemplate() async {
+    if (selectedTemplate == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove("template_$selectedTemplate");
+
+    await _loadSavedTemplates();
+    setState(() {
+      selectedTemplate = null;
+    });
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text("Template deleted!")));
+  }
+
+  Future<void> _loadSavedTemplates() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys();
+    setState(() {
+      savedTemplates =
+          keys
+              .where((key) => key.startsWith("template_"))
+              .map((e) => e.substring(9))
+              .toList();
+    });
   }
 
   @override
@@ -230,14 +352,51 @@ class _GymLogScreenState extends State<GymLogScreen> {
             ),
           ),
           SizedBox(height: 10),
-          ElevatedButton(
-            onPressed: _addExercise,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              shape: CircleBorder(),
-              padding: EdgeInsets.all(14),
-            ),
-            child: Icon(Icons.add, color: Colors.white, size: 28),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                icon: Icon(Icons.add, color: Colors.white, size: 28),
+                onPressed: _addExercise,
+              ),
+              DropdownButton<String>(
+                value: selectedTemplate,
+                hint: Text("Load", style: TextStyle(color: Colors.redAccent)),
+                items:
+                    savedTemplates
+                        .map(
+                          (template) => DropdownMenuItem(
+                            value: template,
+                            child: Text(
+                              template,
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                onChanged: (String? newValue) {
+                  if (newValue != null) {
+                    setState(() {
+                      selectedTemplate = newValue;
+                    });
+                    _loadTemplate(newValue);
+                  }
+                },
+              ),
+              IconButton(
+                icon: Icon(Icons.save, color: Colors.greenAccent),
+                onPressed: () => _saveWorkout(asTemplate: false),
+              ),
+              IconButton(
+                icon: Icon(Icons.file_upload, color: Colors.orangeAccent),
+                onPressed: () => _saveWorkout(asTemplate: true),
+              ),
+              if (selectedTemplate != null)
+                IconButton(
+                  icon: Icon(Icons.delete, color: Colors.redAccent),
+                  onPressed: _deleteTemplate,
+                ),
+            ],
           ),
           SizedBox(height: 10),
           Expanded(
@@ -250,26 +409,10 @@ class _GymLogScreenState extends State<GymLogScreen> {
               ),
             ),
           ),
-          SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: _saveWorkout,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.greenAccent,
-            ),
-            child: Text(
-              "Save Workout",
-              style: TextStyle(color: Colors.black, fontSize: 18),
-            ),
-          ),
         ],
       ),
     );
   }
-}
-
-class GymLogScreen extends StatefulWidget {
-  @override
-  _GymLogScreenState createState() => _GymLogScreenState();
 }
 
 class Exercise {
@@ -278,6 +421,7 @@ class Exercise {
   List<TextEditingController> repsControllers = [];
   List<TextEditingController> weightControllers = [];
   bool isDropset = false;
+  bool isExpanded = true;
   final VoidCallback onUpdate;
   final Function(Exercise) onRemove;
 
@@ -290,14 +434,39 @@ class Exercise {
     onUpdate();
   }
 
+  bool hasEmptyFields() {
+    return nameController.text.isEmpty ||
+        setsController.text.isEmpty ||
+        repsControllers.any((c) => c.text.isEmpty) ||
+        weightControllers.any((c) => c.text.isEmpty);
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'name': nameController.text,
       'sets': setsController.text,
       'reps': repsControllers.map((c) => c.text).toList(),
       'weights': weightControllers.map((c) => c.text).toList(),
-      'dropset': isDropset,
     };
+  }
+
+  factory Exercise.fromJson(
+    Map<String, dynamic> json,
+    VoidCallback onUpdate,
+    Function(Exercise) onRemove,
+  ) {
+    Exercise exercise = Exercise(onUpdate: onUpdate, onRemove: onRemove);
+    exercise.nameController.text = json['name'];
+    exercise.setsController.text = json['sets'];
+    exercise.repsControllers =
+        (json['reps'] as List)
+            .map((rep) => TextEditingController(text: rep))
+            .toList();
+    exercise.weightControllers =
+        (json['weights'] as List)
+            .map((weight) => TextEditingController(text: weight))
+            .toList();
+    return exercise;
   }
 
   Widget buildWidget() {
@@ -313,6 +482,7 @@ class Exercise {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
                   child: TextField(
@@ -326,53 +496,75 @@ class Exercise {
                   ),
                 ),
                 IconButton(
+                  icon: Icon(
+                    isExpanded ? Icons.expand_less : Icons.expand_more,
+                    color: Colors.white,
+                  ),
+                  onPressed: () {
+                    isExpanded = !isExpanded;
+                    onUpdate();
+                  },
+                ),
+                IconButton(
                   icon: Icon(Icons.delete, color: Colors.redAccent),
                   onPressed: () => onRemove(this),
                 ),
               ],
             ),
-            TextField(
-              controller: setsController,
-              keyboardType: TextInputType.number,
-              style: TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: "Sets",
-                hintStyle: TextStyle(color: Colors.white54),
-                border: OutlineInputBorder(),
-                filled: true,
-                fillColor: Colors.grey[800],
+            if (isExpanded) ...[
+              SizedBox(height: 6),
+              TextField(
+                controller: setsController,
+                keyboardType: TextInputType.number,
+                style: TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: "Sets",
+                  hintStyle: TextStyle(color: Colors.white54),
+                  border: OutlineInputBorder(),
+                  filled: true,
+                  fillColor: Colors.grey[800],
+                ),
+                onChanged: updateSets,
               ),
-              onChanged: updateSets,
-            ),
-            for (int i = 0; i < repsControllers.length; i++)
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildTextField(repsControllers[i], "Reps/Failure"),
+              for (int i = 0; i < repsControllers.length; i++)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(repsControllers[i], "Reps"),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                        child: Text(
+                          "x",
+                          style: TextStyle(color: Colors.white, fontSize: 18),
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildTextField(
+                          weightControllers[i],
+                          "Weight (kg/lbs)",
+                        ),
+                      ),
+                    ],
                   ),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: _buildTextField(
-                      weightControllers[i],
-                      "Weight (kg/lbs)",
-                    ),
+                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text("Dropset", style: TextStyle(color: Colors.white)),
+                  Switch(
+                    value: isDropset,
+                    onChanged: (value) {
+                      isDropset = value;
+                      onUpdate();
+                    },
+                    activeColor: Colors.redAccent,
                   ),
                 ],
               ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("Dropset", style: TextStyle(color: Colors.white)),
-                Switch(
-                  value: isDropset,
-                  onChanged: (value) {
-                    isDropset = value;
-                    onUpdate();
-                  },
-                  activeColor: Colors.redAccent,
-                ),
-              ],
-            ),
+            ],
           ],
         ),
       ),
@@ -400,10 +592,6 @@ class BodyMetricsScreen extends StatefulWidget {
 
 class _BodyMetricsScreenState extends State<BodyMetricsScreen> {
   final TextEditingController _weightController = TextEditingController();
-  final TextEditingController _bodyFatController = TextEditingController();
-  final TextEditingController _waistController = TextEditingController();
-  final TextEditingController _chestController = TextEditingController();
-  final TextEditingController _armsController = TextEditingController();
 
   @override
   void initState() {
@@ -415,24 +603,16 @@ class _BodyMetricsScreenState extends State<BodyMetricsScreen> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _weightController.text = prefs.getString("weight") ?? "";
-      _bodyFatController.text = prefs.getString("bodyFat") ?? "";
-      _waistController.text = prefs.getString("waist") ?? "";
-      _chestController.text = prefs.getString("chest") ?? "";
-      _armsController.text = prefs.getString("arms") ?? "";
     });
   }
 
   Future<void> _saveMetrics() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("weight", _weightController.text);
-    await prefs.setString("bodyFat", _bodyFatController.text);
-    await prefs.setString("waist", _waistController.text);
-    await prefs.setString("chest", _chestController.text);
-    await prefs.setString("arms", _armsController.text);
 
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text("Metrics saved!")));
+    ).showSnackBar(SnackBar(content: Text("Weight saved!")));
   }
 
   @override
@@ -442,16 +622,20 @@ class _BodyMetricsScreenState extends State<BodyMetricsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            "Body Metrics",
-            style: TextStyle(color: Colors.white, fontSize: 24),
-          ),
+          Text("Metrics", style: TextStyle(color: Colors.white, fontSize: 24)),
           SizedBox(height: 20),
-          _buildMetricField("Weight (kg/lbs)", _weightController),
-          _buildMetricField("Body Fat (%)", _bodyFatController),
-          _buildMetricField("Waist (cm/inches)", _waistController),
-          _buildMetricField("Chest (cm/inches)", _chestController),
-          _buildMetricField("Arms (cm/inches)", _armsController),
+          TextField(
+            controller: _weightController,
+            style: TextStyle(color: Colors.white),
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              labelText: "Weight (kg/lbs)",
+              labelStyle: TextStyle(color: Colors.white54),
+              border: OutlineInputBorder(),
+              filled: true,
+              fillColor: Colors.grey[800],
+            ),
+          ),
           SizedBox(height: 20),
           ElevatedButton(
             onPressed: _saveMetrics,
@@ -459,7 +643,7 @@ class _BodyMetricsScreenState extends State<BodyMetricsScreen> {
               backgroundColor: Colors.greenAccent,
             ),
             child: Text(
-              "Save Metrics",
+              "Save Weight",
               style: TextStyle(color: Colors.black, fontSize: 18),
             ),
           ),
@@ -467,20 +651,140 @@ class _BodyMetricsScreenState extends State<BodyMetricsScreen> {
       ),
     );
   }
+}
 
-  Widget _buildMetricField(String label, TextEditingController controller) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: TextField(
-        controller: controller,
-        style: TextStyle(color: Colors.white),
-        keyboardType: TextInputType.number,
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: TextStyle(color: Colors.white54),
-          border: OutlineInputBorder(),
-          filled: true,
-          fillColor: Colors.grey[800],
+class ProgressGraphScreen extends StatefulWidget {
+  @override
+  _ProgressGraphScreenState createState() => _ProgressGraphScreenState();
+}
+
+class _ProgressGraphScreenState extends State<ProgressGraphScreen> {
+  String? selectedExercise;
+  Map<DateTime, List<dynamic>> workoutData = {};
+  List<FlSpot> graphData = [];
+  List<String> exerciseNames = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWorkoutHistory();
+  }
+
+  Future<void> _loadWorkoutHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys();
+
+    Map<DateTime, List<dynamic>> data = {};
+    Set<String> exercises = {};
+
+    for (String key in keys) {
+      if (RegExp(r'\d{4}-\d{2}-\d{2}').hasMatch(key)) {
+        String? jsonData = prefs.getString(key);
+        if (jsonData != null) {
+          List<dynamic> workout = jsonDecode(jsonData);
+          DateTime date = DateFormat('yyyy-MM-dd').parse(key);
+          data[date] = workout;
+          for (var exercise in workout) {
+            exercises.add(exercise['name']);
+          }
+        }
+      }
+    }
+
+    setState(() {
+      workoutData = data;
+      exerciseNames = exercises.toList();
+    });
+  }
+
+  void _updateGraph() {
+    if (selectedExercise == null) return;
+    List<FlSpot> spots = [];
+    List<DateTime> sortedDates = workoutData.keys.toList()..sort();
+
+    for (int i = 0; i < sortedDates.length; i++) {
+      DateTime date = sortedDates[i];
+      List<dynamic> workout = workoutData[date] ?? [];
+      for (var exercise in workout) {
+        if (exercise['name'] == selectedExercise) {
+          int totalWeight = 0;
+          for (int j = 0; j < exercise['reps'].length; j++) {
+            totalWeight +=
+                int.parse(exercise['reps'][j]) *
+                int.parse(exercise['weights'][j]);
+          }
+          spots.add(FlSpot(i.toDouble(), totalWeight.toDouble()));
+        }
+      }
+    }
+
+    setState(() {
+      graphData = spots;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(title: Text("Progress Graph")),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DropdownButton<String>(
+              value: selectedExercise,
+              hint: Text(
+                "Select Exercise",
+                style: TextStyle(color: Colors.white),
+              ),
+              dropdownColor: Colors.grey[900],
+              items:
+                  exerciseNames.map((exercise) {
+                    return DropdownMenuItem(
+                      value: exercise,
+                      child: Text(
+                        exercise,
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    );
+                  }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  selectedExercise = value;
+                });
+                _updateGraph();
+              },
+            ),
+            SizedBox(height: 20),
+            Expanded(
+              child:
+                  graphData.isEmpty
+                      ? Center(
+                        child: Text(
+                          "No data available",
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      )
+                      : LineChart(
+                        LineChartData(
+                          backgroundColor: Colors.black,
+                          gridData: FlGridData(show: false),
+                          titlesData: FlTitlesData(show: false),
+                          borderData: FlBorderData(show: false),
+                          lineBarsData: [
+                            LineChartBarData(
+                              spots: graphData,
+                              isCurved: true,
+                              // color: Colors.redAccent,
+                              dotData: FlDotData(show: false),
+                            ),
+                          ],
+                        ),
+                      ),
+            ),
+          ],
         ),
       ),
     );
